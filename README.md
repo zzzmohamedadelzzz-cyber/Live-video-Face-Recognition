@@ -1,98 +1,199 @@
-# Face Recognition App — DEBI Hackathon
+# Live Face Recognition
 
-Real-time face recognition via WebSocket streaming, FastAPI, dlib/face_recognition, and Qdrant Cloud vector DB.
+Real-time face recognition streamed over WebSocket — **ArcFace 512-d embeddings**, **MTCNN detection**, **Qdrant Cloud** vector database, and a **60 FPS canvas UI** decoupled from the server processing loop.
+
+---
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
-| Backend | FastAPI + uvicorn |
-| Face detection | face_recognition (dlib HOG) |
-| Vector DB | Qdrant Cloud (128-d cosine) |
-| Frontend | HTML + Vanilla JS + Canvas |
+| Backend | FastAPI + Uvicorn |
+| Face detection | MTCNN (deepface 0.0.99) |
+| Face embedding | ArcFace — 512-d, 99.6 % LFW accuracy |
+| Vector database | Qdrant Cloud — cosine similarity |
+| Frontend | Vanilla JS + HTML5 Canvas |
 | Container | Docker + Docker Compose |
-| CI/CD | GitHub Actions → Railway |
+| CI/CD | GitHub Actions → GitHub Container Registry |
 
-## Quick start (local, no Docker)
-
-```bash
-# 1. Install deps (requires cmake + build-essential for dlib)
-pip install -r requirements.txt
-
-# 2. Copy and fill in credentials
-cp .env.example .env   # then edit .env
-
-# 3. Run
-uvicorn app:app --reload
-# Open http://localhost:8000
-```
-
-## Quick start (Docker)
-
-```bash
-cp .env.example .env   # fill in credentials
-docker compose up --build
-# Open http://localhost:8000
-```
-
-## Environment variables
-
-| Variable | Description | Default |
-|---|---|---|
-| `QDRANT_URL` | Qdrant cluster URL | — |
-| `QDRANT_API_KEY` | Qdrant API key | — |
-| `QDRANT_COLLECTION` | Collection name | `DEBI_FACE_RECO` |
-| `TOLERANCE` | Cosine score threshold (0–1) | `0.85` |
-
-## API
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Web UI |
-| `WS` | `/ws/recognize` | Streaming recognition |
-| `POST` | `/api/register` | Register a face `{name, frame}` |
-| `GET` | `/api/persons` | List registered persons |
-| `DELETE` | `/api/persons/{name}` | Delete all embeddings for a person |
-
-## Tests
-
-```bash
-pytest tests/ -v   # face_recognition is mocked — no dlib needed
-```
-
-## CI/CD
-
-GitHub Actions (`.github/workflows/ci-cd.yml`):
-1. **Lint** — `ruff check .`
-2. **Test** — `pytest` (mocked face_recognition, no build time)
-3. **Docker build & push** → GitHub Container Registry (`ghcr.io`)
-4. **Railway** auto-deploys on every push to `main`
-
-## Deploy to Railway
-
-1. Push repo to GitHub
-2. [railway.app](https://railway.app) → New Project → Deploy from GitHub Repo
-3. Set env vars: `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_COLLECTION`, `TOLERANCE`
-4. Every `git push main` → GitHub Actions tests → Railway deploys automatically
+---
 
 ## Architecture
 
 ```
 Browser (getUserMedia)
-  │  base64 JPEG every 100 ms
-  ▼
-FastAPI WebSocket /ws/recognize
-  │  face_recognition (HOG, 50% scale)
-  │  128-d embedding → Qdrant cosine search
-  ▼
-JSON { faces: [{box, label, score, color}] }
   │
+  │  base64 JPEG frame  (every 100 ms — 10 FPS)
   ▼
-Canvas overlay (bounding boxes + labels)
+FastAPI  /ws/recognize  (WebSocket)
+  │
+  ├─ every 4th frame ──► MTCNN detect + ArcFace embed (~200 ms)
+  │                       512-d vector → Qdrant cosine search
+  │                       returns label + confidence
+  │
+  └─ other frames ──────► MTCNN detect only (~50 ms)
+                           reuse last labels, match by box centre
+  │
+  │  JSON  { faces: [{ box, label, score, color }] }
+  ▼
+Browser
+  ├─ ws.onmessage  → updates lastFaces cache
+  │
+  └─ requestAnimationFrame loop (60 FPS)
+       reads lastFaces, redraws canvas overlay every frame
+       → smooth UI regardless of server round-trip time
 ```
+
+### Two-speed pipeline
+
+| Path | Trigger | What runs | Latency |
+|---|---|---|---|
+| **Slow** (recognition) | Every 4th frame | MTCNN + ArcFace + Qdrant search | ~200 ms |
+| **Fast** (detection only) | All other frames | MTCNN only | ~50 ms |
+
+The fast path keeps boxes on screen between recognition ticks. Labels are carried forward and matched to new boxes by nearest bounding-box centre distance.
+
+### Decoupled render loop
+
+The browser render loop (`requestAnimationFrame`) runs at the display's native refresh rate (typically 60 FPS) and is completely independent of the WebSocket. It simply redraws the last received face data on each animation frame. The server loop fires at 10 FPS without waiting for replies. This prevents UI stutter even when the server takes 200 ms per frame.
+
+---
+
+## Quick start (local, no Docker)
+
+```bash
+# 1. Python 3.11+ recommended
+pip install -r requirements.txt
+
+# 2. Copy and fill in credentials
+cp .env.example .env
+
+# 3. Start
+uvicorn app:app --reload --host 0.0.0.0 --port 8000
+# Open http://localhost:8000
+```
+
+> **Windows note:** set `PYTHONUTF8=1` in your `.env` (already in `.env.example`) to prevent deepface's emoji-heavy logger from crashing on cp1252 terminals.
+
+---
+
+## Quick start (Docker)
+
+```bash
+cp .env.example .env      # fill in credentials
+docker compose up --build
+# Open http://localhost:8000
+```
+
+---
+
+## Environment variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `QDRANT_URL` | Qdrant cluster HTTPS URL | required |
+| `QDRANT_API_KEY` | Qdrant API key | required |
+| `QDRANT_COLLECTION` | Collection name | `DEBI_FACE_RECO` |
+| `TOLERANCE` | Cosine similarity threshold (0–1). Higher = stricter match | `0.68` |
+| `RECOGNIZE_EVERY` | Run full ArcFace every N frames; fast detection on the rest | `4` |
+| `PYTHONUTF8=1` | Force UTF-8 output (required on Windows) | — |
+
+---
+
+## API reference
+
+| Method | Path | Body / Params | Description |
+|---|---|---|---|
+| `GET` | `/` | — | Serves the web UI |
+| `WS` | `/ws/recognize` | `{ frame: "data:image/jpeg;base64,…" }` | Streaming recognition loop |
+| `POST` | `/api/register` | `{ name: string, frame: string }` | Detect face in frame and store embedding |
+| `GET` | `/api/persons` | — | List all registered person names |
+| `DELETE` | `/api/persons/{name}` | — | Delete all embeddings for a person |
+
+### WebSocket message format
+
+**Client → Server**
+```json
+{ "frame": "data:image/jpeg;base64,/9j/4AAQ..." }
+```
+
+**Server → Client**
+```json
+{
+  "faces": [
+    {
+      "box":   { "top": 80, "right": 320, "bottom": 280, "left": 120 },
+      "label": "Alice",
+      "score": 0.91,
+      "color": "green"
+    }
+  ]
+}
+```
+
+`color` is `"green"` (known), `"red"` (unknown), or `"orange"` (awaiting recognition).
+
+---
+
+## Qdrant collection
+
+The collection is created automatically on startup with:
+
+- **Vector size:** 512 (ArcFace)
+- **Distance metric:** Cosine
+- **Payload index:** `name` field (keyword) — required for filtered deletes on Qdrant Cloud
+
+If the collection already exists with a different vector size (e.g. from a previous FaceNet/128-d setup) it is automatically dropped and recreated.
+
+Multiple embeddings per person are allowed and all contribute to search — registering someone from several angles improves accuracy.
+
+---
+
+## Project structure
+
+```
+.
+├── app.py                  # FastAPI app, WebSocket handler, REST endpoints
+├── core/
+│   ├── detector.py         # detect_only() and detect_faces() — MTCNN + ArcFace
+│   └── qdrant_store.py     # Qdrant upsert / search / list / delete
+├── templates/
+│   └── index.html          # Full frontend — camera, canvas overlay, register UI
+├── tests/
+│   ├── conftest.py         # deepface mocked via sys.modules for CI
+│   ├── test_detector.py
+│   └── test_qdrant_store.py
+├── .env.example
+├── Dockerfile
+├── docker-compose.yml
+└── requirements.txt
+```
+
+---
+
+## Tests
+
+```bash
+pytest tests/ -v
+```
+
+deepface and TensorFlow are mocked via `sys.modules` in `conftest.py` — no GPU or model download needed in CI.
+
+---
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/ci-cd.yml`):
+
+1. **Lint** — `ruff check .`
+2. **Test** — `pytest` with mocked deepface (no TF install)
+3. **Docker build & push** → GitHub Container Registry (`ghcr.io`)
+
+---
 
 ## Accuracy tips
 
-- Register **3–5 photos** per person at different angles/lighting
-- Threshold `0.85` — lower → more permissive, higher → stricter
-- Switch to CNN model in `detector.py` if HOG accuracy is poor (GPU recommended)
+- Register **3–5 photos** per person from different angles and lighting conditions
+- `TOLERANCE=0.68` is a good starting point — lower values are stricter (fewer false positives), higher values are more permissive (fewer false negatives)
+- ArcFace at 512-d outperforms FaceNet (128-d) significantly on real-world conditions; no config change needed
+- MTCNN is robust to partial occlusion and moderate angles — if detection is still missing faces, ensure good frontal lighting
