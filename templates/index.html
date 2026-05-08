@@ -279,6 +279,8 @@
   // ── State ─────────────────────────────────────────────────────────────────
   let ws;
   let serverLoopActive = false;
+  let waitingForServer = false;
+  const SERVER_FRAME_INTERVAL_MS = 3000;
 
   // lastFaces is the shared cache between the server loop and the render loop.
   // The render loop reads it at 60 FPS; the server loop writes it at ~10 FPS.
@@ -338,6 +340,7 @@
 
     // Receive: update the shared cache — the render loop picks it up next frame
     ws.onmessage = (ev) => {
+      waitingForServer = false;
       const data = JSON.parse(ev.data);
       lastFaces = data.faces || [];
       msgCount++;
@@ -357,6 +360,7 @@
       wsDot.classList.remove('connected');
       wsLabel.textContent = 'Reconnecting…';
       serverLoopActive = false;
+      waitingForServer = false;
       lastFaces = [];
       setTimeout(connectWS, 2000);
     };
@@ -364,21 +368,24 @@
     ws.onerror = () => ws.close();
   }
 
-  // ── Server loop: fire-and-forget at 10 FPS ────────────────────────────────
-  // Does NOT wait for the server reply before sending the next frame.
-  // The render loop is decoupled — it runs at 60 FPS independently.
-  // Sending at 10 FPS matches the server's processing throughput (~80–90 ms/frame)
-  // so the WebSocket buffer stays at ≤1 frame with no growing lag.
+  // Server loop: send the latest snapshot only after the previous one returns.
+  // This prevents stale camera frames from building up in the WebSocket.
   async function startServerLoop() {
     serverLoopActive = true;
     while (serverLoopActive) {
-      if (ws.readyState === WebSocket.OPEN && video.videoWidth) {
+      if (
+        ws.readyState === WebSocket.OPEN &&
+        video.videoWidth &&
+        !waitingForServer &&
+        ws.bufferedAmount === 0
+      ) {
         captureCtx.drawImage(video, 0, 0);
+        waitingForServer = true;
         ws.send(JSON.stringify({
           frame: captureCanvas.toDataURL('image/jpeg', 0.6)
         }));
       }
-      await sleep(100);   // 10 FPS to server
+      await sleep(SERVER_FRAME_INTERVAL_MS);
     }
   }
 

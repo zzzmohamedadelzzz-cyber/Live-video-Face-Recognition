@@ -23,7 +23,7 @@ Real-time face recognition streamed over WebSocket — **ArcFace 512-d embedding
 ```
 Browser (getUserMedia)
   │
-  │  base64 JPEG frame  (every 100 ms — 10 FPS)
+  │  base64 JPEG frame  (latest snapshot every 3 seconds, after prior reply)
   ▼
 FastAPI  /ws/recognize  (WebSocket)
   │
@@ -55,7 +55,7 @@ The fast path keeps boxes on screen between recognition ticks. Labels are carrie
 
 ### Decoupled render loop
 
-The browser render loop (`requestAnimationFrame`) runs at the display's native refresh rate (typically 60 FPS) and is completely independent of the WebSocket. It simply redraws the last received face data on each animation frame. The server loop fires at 10 FPS without waiting for replies. This prevents UI stutter even when the server takes 200 ms per frame.
+The browser render loop (`requestAnimationFrame`) runs at the display's native refresh rate (typically 60 FPS) and is completely independent of the WebSocket. It simply redraws the last received face data on each animation frame. The server loop sends one latest camera snapshot, waits for the server reply, then samples again after 3 seconds. This prevents stale frames from building up when recognition is slower than the camera.
 
 ---
 
@@ -95,7 +95,7 @@ docker compose up --build
 | `QDRANT_API_KEY` | Qdrant API key | required |
 | `QDRANT_COLLECTION` | Collection name | `DEBI_FACE_RECO` |
 | `TOLERANCE` | Cosine similarity threshold (0–1). Higher = stricter match | `0.68` |
-| `RECOGNIZE_EVERY` | Run full ArcFace every N frames; fast detection on the rest | `4` |
+| `RECOGNIZE_EVERY` | Run full ArcFace every N frames; fast detection on the rest | `1` |
 | `PYTHONUTF8=1` | Force UTF-8 output (required on Windows) | — |
 
 ---

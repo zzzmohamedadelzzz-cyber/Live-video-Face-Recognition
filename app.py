@@ -27,7 +27,7 @@ store: QdrantStore | None = None
 # Run full ArcFace recognition every N frames; use fast detect_only for the rest.
 # Lower  → more accurate labels, slower boxes.
 # Higher → faster boxes, labels update less often.
-RECOGNIZE_EVERY = int(os.getenv("RECOGNIZE_EVERY", "4"))
+RECOGNIZE_EVERY = int(os.getenv("RECOGNIZE_EVERY", "1"))
 TOLERANCE       = float(os.getenv("TOLERANCE", "0.68"))
 
 
