@@ -1,0 +1,77 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Lint + Test ────────────────────────────────────────────────────────────
+  lint-and-test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install test dependencies (no dlib required)
+        run: |
+          pip install \
+            fastapi uvicorn qdrant-client numpy Pillow \
+            python-dotenv python-multipart \
+            pytest pytest-asyncio httpx ruff
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Run tests
+        run: pytest tests/ -v
+        env:
+          QDRANT_URL:    ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+
+  # ── Docker Build & Push ────────────────────────────────────────────────────
+  docker:
+    name: Docker Build & Push
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/face-recognition-app:latest
+            ghcr.io/${{ github.repository_owner }}/face-recognition-app:${{ github.sha }}
+
+  # ── Railway auto-deploys when it detects a push to main ───────────────────
+  # Connect your repo at https://railway.app → New Project → Deploy from GitHub
+  # Set env vars: QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION, TOLERANCE

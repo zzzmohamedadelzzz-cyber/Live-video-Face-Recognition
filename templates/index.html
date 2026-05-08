@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Face Recognition — DEBI Hackathon</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f1a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      background: linear-gradient(90deg, #60a5fa, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      font-size: 0.85rem;
+      color: #64748b;
+      margin-bottom: 24px;
+    }
+
+    .layout {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* ── Video area ── */
+    .video-wrapper {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 0 0 2px #1e293b, 0 20px 40px rgba(0,0,0,0.5);
+    }
+
+    #video {
+      display: block;
+      width: 640px;
+      height: 480px;
+      object-fit: cover;
+      background: #1e293b;
+    }
+
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .status-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(15,15,26,0.75);
+      backdrop-filter: blur(4px);
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.78rem;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+      flex-shrink: 0;
+    }
+    .dot.connected { background: #22c55e; animation: pulse 2s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ── Side panel ── */
+    .side-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      width: 260px;
+    }
+
+    .card {
+      background: #1e293b;
+      border: 1px solid #2d3748;
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .card h2 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 12px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+      margin-bottom: 8px;
+    }
+    input[type="text"]:focus { border-color: #60a5fa; }
+
+    button {
+      width: 100%;
+      padding: 9px 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    button:hover { opacity: 0.88; }
+    button:active { transform: scale(0.98); }
+
+    #btn-register {
+      background: linear-gradient(135deg, #60a5fa, #a78bfa);
+      color: #fff;
+    }
+
+    #msg {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      min-height: 18px;
+      color: #94a3b8;
+    }
+    #msg.ok  { color: #22c55e; }
+    #msg.err { color: #ef4444; }
+
+    /* persons list */
+    #persons-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    .person-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 0.85rem;
+    }
+
+    .person-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .btn-del {
+      width: auto;
+      padding: 3px 8px;
+      background: #7f1d1d;
+      color: #fca5a5;
+      font-size: 0.75rem;
+      border-radius: 6px;
+      margin-left: 8px;
+    }
+
+    .empty-msg { font-size: 0.8rem; color: #475569; }
+
+    /* stats */
+    .stats { display: flex; gap: 10px; }
+    .stat-box {
+      flex: 1;
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+    .stat-box .val { font-size: 1.4rem; font-weight: 700; color: #60a5fa; }
+    .stat-box .lbl { font-size: 0.7rem; color: #64748b; margin-top: 2px; }
+
+    @media (max-width: 720px) {
+      #video { width: 100vw; height: auto; }
+      .side-panel { width: 100%; max-width: 480px; }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Face Recognition</h1>
+  <p class="subtitle">Real-time · Qdrant Vector DB · FastAPI</p>
+
+  <div class="layout">
+    <!-- Camera feed -->
+    <div class="video-wrapper">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+      <div class="status-bar">
+        <div class="dot" id="ws-dot"></div>
+        <span id="ws-label">Connecting…</span>
+        <span style="margin-left:auto;color:#475569" id="fps-label"></span>
+        <span style="color:#64748b;font-size:0.7rem" id="dbg-label"></span>
+      </div>
+    </div>
+
+    <!-- Side panel -->
+    <div class="side-panel">
+
+      <!-- Stats -->
+      <div class="card">
+        <h2>Live Stats</h2>
+        <div class="stats">
+          <div class="stat-box"><div class="val" id="stat-faces">0</div><div class="lbl">Faces</div></div>
+          <div class="stat-box"><div class="val" id="stat-fps">0</div><div class="lbl">FPS</div></div>
+          <div class="stat-box"><div class="val" id="stat-known">0</div><div class="lbl">Known</div></div>
+        </div>
+      </div>
+
+      <!-- Register -->
+      <div class="card">
+        <h2>Register Face</h2>
+        <input type="text" id="name-input" placeholder="Full name…" maxlength="60" />
+        <button id="btn-register" onclick="registerFace()">📸 Snapshot &amp; Register</button>
+        <div id="msg"></div>
+      </div>
+
+      <!-- Persons -->
+      <div class="card">
+        <h2>Registered Persons</h2>
+        <div id="persons-list"><p class="empty-msg">Loading…</p></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Hidden canvas used for frame capture -->
+  <canvas id="capture" style="display:none"></canvas>
+
+  <script>
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  const video        = document.getElementById('video');
+  const overlay      = document.getElementById('overlay');
+  const captureCanvas = document.getElementById('capture');
+  const ctx          = overlay.getContext('2d');
+  const captureCtx   = captureCanvas.getContext('2d');
+  const wsDot        = document.getElementById('ws-dot');
+  const wsLabel      = document.getElementById('ws-label');
+  const fpsLabel     = document.getElementById('fps-label');
+  const statFaces    = document.getElementById('stat-faces');
+  const statFps      = document.getElementById('stat-fps');
+  const statKnown    = document.getElementById('stat-known');
+  const msgEl        = document.getElementById('msg');
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let ws;
+  let serverLoopActive = false;
+
+  // lastFaces is the shared cache between the server loop and the render loop.
+  // The render loop reads it at 60 FPS; the server loop writes it at ~10 FPS.
+  let lastFaces = [];
+
+  // FPS counter — measures how often the server sends back results
+  let msgCount = 0;
+  setInterval(() => {
+    statFps.textContent  = msgCount;
+    fpsLabel.textContent = msgCount + ' fps';
+    msgCount = 0;
+  }, 1000);
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // ── 60 FPS render loop (requestAnimationFrame) ─────────────────────────────
+  // Completely independent of the WebSocket — redraws the overlay every browser
+  // frame using whatever face data the server last sent.  This is what makes the
+  // canvas feel silky-smooth even though the server only responds at ~10 FPS.
+  function startRenderLoop() {
+    function frame() {
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      paintFaces(lastFaces);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ── Camera ────────────────────────────────────────────────────────────────
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+      });
+      video.srcObject = stream;
+      video.addEventListener('loadedmetadata', () => {
+        const W = video.videoWidth  || 640;
+        const H = video.videoHeight || 480;
+        overlay.width  = captureCanvas.width  = W;
+        overlay.height = captureCanvas.height = H;
+      });
+    } catch (e) {
+      wsLabel.textContent = 'Camera denied — ' + e.message;
+    }
+  }
+
+  // ── WebSocket ─────────────────────────────────────────────────────────────
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws/recognize`);
+
+    ws.onopen = () => {
+      wsDot.classList.add('connected');
+      wsLabel.textContent = 'Streaming live';
+      startServerLoop();
+    };
+
+    // Receive: update the shared cache — the render loop picks it up next frame
+    ws.onmessage = (ev) => {
+      const data = JSON.parse(ev.data);
+      lastFaces = data.faces || [];
+      msgCount++;
+      // Debug: show server response in status bar
+      const dbg = document.getElementById('dbg-label');
+      if (data.error) {
+        dbg.textContent = '⚠ ' + data.error.slice(0, 60);
+        dbg.style.color = '#ef4444';
+      } else {
+        dbg.textContent = `server: ${lastFaces.length} face(s) | canvas: ${overlay.width}×${overlay.height}`;
+        dbg.style.color = '#64748b';
+      }
+      console.log('[ws] faces:', lastFaces.length, 'canvas:', overlay.width, overlay.height, data.error || '');
+    };
+
+    ws.onclose = () => {
+      wsDot.classList.remove('connected');
+      wsLabel.textContent = 'Reconnecting…';
+      serverLoopActive = false;
+      lastFaces = [];
+      setTimeout(connectWS, 2000);
+    };
+
+    ws.onerror = () => ws.close();
+  }
+
+  // ── Server loop: fire-and-forget at 10 FPS ────────────────────────────────
+  // Does NOT wait for the server reply before sending the next frame.
+  // The render loop is decoupled — it runs at 60 FPS independently.
+  // Sending at 10 FPS matches the server's processing throughput (~80–90 ms/frame)
+  // so the WebSocket buffer stays at ≤1 frame with no growing lag.
+  async function startServerLoop() {
+    serverLoopActive = true;
+    while (serverLoopActive) {
+      if (ws.readyState === WebSocket.OPEN && video.videoWidth) {
+        captureCtx.drawImage(video, 0, 0);
+        ws.send(JSON.stringify({
+          frame: captureCanvas.toDataURL('image/jpeg', 0.6)
+        }));
+      }
+      await sleep(100);   // 10 FPS to server
+    }
+  }
+
+  // ── Paint bounding boxes (called by the 60 FPS render loop) ─────────────
+  // Canvas is already cleared by the render loop before this is called.
+  // Stats are updated here so they stay in sync with what's on screen.
+  function paintFaces(faces) {
+    let known = 0;
+
+    faces.forEach(face => {
+      const { top, right, bottom, left } = face.box;
+      const W = right - left;
+      const H = bottom - top;
+      const isKnown = face.label !== 'Unknown' && face.label !== '…';
+      if (isKnown) known++;
+
+      // Box outline
+      ctx.strokeStyle = face.color;
+      ctx.lineWidth   = 2;
+      ctx.strokeRect(left, top, W, H);
+
+      // Corner accents
+      const c = 14;
+      ctx.lineWidth = 3;
+      [[left,top],[right,top],[left,bottom],[right,bottom]].forEach(([x,y], i) => {
+        ctx.beginPath();
+        ctx.moveTo(x + (i%2 ? -c : c), y);
+        ctx.lineTo(x, y);
+        ctx.lineTo(x, y + (i<2 ? c : -c));
+        ctx.stroke();
+      });
+
+      // Label pill
+      const label   = face.label === '…'
+        ? '…'
+        : `${face.label}  ${(face.score * 100).toFixed(0)}%`;
+      ctx.font      = 'bold 14px "Segoe UI", system-ui, sans-serif';
+      const tw      = ctx.measureText(label).width;
+      const pad     = 6;
+      const lh      = 22;
+      const ly      = top > lh + 4 ? top - lh - 2 : bottom + 2;
+
+      ctx.fillStyle   = face.color;
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(left - 1, ly, tw + pad * 2, lh);
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, left + pad - 1, ly + lh - 6);
+    });
+
+    statFaces.textContent = faces.length;
+    statKnown.textContent = known;
+  }
+
+  // ── Register ──────────────────────────────────────────────────────────────
+  async function registerFace() {
+    const name = document.getElementById('name-input').value.trim();
+    if (!name) { showMsg('Enter a name first.', false); return; }
+    if (!video.videoWidth) { showMsg('Camera not ready.', false); return; }
+
+    captureCtx.drawImage(video, 0, 0);
+    const frame = captureCanvas.toDataURL('image/jpeg', 0.9);
+
+    const btn = document.getElementById('btn-register');
+    btn.disabled = true;
+    btn.textContent = 'Registering…';
+
+    try {
+      const res  = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, frame }),
+      });
+      const data = await res.json();
+      showMsg(data.message, data.success);
+      if (data.success) {
+        document.getElementById('name-input').value = '';
+        loadPersons();
+      }
+    } catch (e) {
+      showMsg('Network error: ' + e.message, false);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📸 Snapshot & Register';
+    }
+  }
+
+  function showMsg(text, ok) {
+    msgEl.textContent = text;
+    msgEl.className = ok ? 'ok' : 'err';
+  }
+
+  // ── Persons list ──────────────────────────────────────────────────────────
+  async function loadPersons() {
+    try {
+      const res  = await fetch('/api/persons');
+      const data = await res.json();
+      renderPersons(data.persons || []);
+    } catch {
+      document.getElementById('persons-list').innerHTML =
+        '<p class="empty-msg">Could not load persons.</p>';
+    }
+  }
+
+  function renderPersons(persons) {
+    const el = document.getElementById('persons-list');
+    if (!persons.length) {
+      el.innerHTML = '<p class="empty-msg">No persons registered yet.</p>';
+      return;
+    }
+    el.innerHTML = persons.map(p => `
+      <div class="person-row">
+        <span>👤 ${p}</span>
+        <button class="btn-del" onclick="deletePerson('${p.replace(/'/g,"\\'")}')">✕</button>
+      </div>`).join('');
+  }
+
+  async function deletePerson(name) {
+    if (!confirm(`Delete all embeddings for "${name}"?`)) return;
+    await fetch(`/api/persons/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    loadPersons();
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  startCamera();
+  startRenderLoop();
+  connectWS();
+  loadPersons();
+
+  // Allow Enter key to trigger register
+  document.getElementById('name-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') registerFace();
+  });
+  </script>
+</body>
+</html>
